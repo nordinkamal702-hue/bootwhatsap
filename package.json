@@ -1,0 +1,22 @@
+{
+  "name": "botwhatsap",
+  "version": "1.0.0",
+  "description": "",
+  "license": "ISC",
+  "author": "",
+  "type": "commonjs",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "@distube/ytdl-core": "^4.16.12",
+    "@google/generative-ai": "^0.24.1",
+    "@whiskeysockets/baileys": "^7.0.0-rc13",
+    "axios": "^1.18.0",
+    "dotenv": "^17.4.2",
+    "gtts": "^0.2.1",
+    "qrcode-terminal": "^0.12.0",
+    "yt-search": "^2.13.1"
+  }
+}
