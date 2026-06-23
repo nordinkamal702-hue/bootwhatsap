@@ -5,20 +5,62 @@ const ytSearch = require('yt-search');
 const ytdl = require('@distube/ytdl-core');
 const axios = require('axios');
 const fs = require('fs');
-const gTTS = require('gtts'); // المكتبة المضمونة لتحويل النص إلى صوت ميكرو أزرق
+const gTTS = require('gtts'); 
+const express = require('express'); // 1. استيراد Express
+const QRCode = require('qrcode');   // 2. استيراد مكتبة qrcode لتحويل النص إلى صورة
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+let latestQR = null; // متغير لحفظ الـ QR Code الحالي
 
 if (!fs.existsSync('./downloads')) {
     fs.mkdirSync('./downloads');
 }
 
-// إعداد Gemini - غانخدمو بموديل المستقر لتوليد النصوص الحماسية بالدارجة
+// إعداد خادم الويب لعرض الـ QR
+app.get('/', async (req, res) => {
+    if (!latestQR) {
+        res.send(`
+            <meta charset="utf-8">
+            <div style="text-align: center; font-family: Arial; margin-top: 50px;">
+                <h2>✅ البوت شغال ومربوط أو جاري التحميل...</h2>
+                <p>إذا كان البوت غير مربوط، انتظر بضع ثوانٍ ثم قم بتحديث الصفحة.</p>
+                <script>setTimeout(() => { location.reload(); }, 3000);</script>
+            </div>
+        `);
+        return;
+    }
+
+    try {
+        // تحويل نص الـ QR إلى Data URL لتقديمه كصورة في المتصفح
+        const qrImage = await QRCode.toDataURL(latestQR);
+        res.send(`
+            <meta charset="utf-8">
+            <div style="text-align: center; font-family: Arial; margin-top: 50px;">
+                <h1>📱 ربط بوت الواتساب</h1>
+                <p>سكان الـ QR Code أسفله عبر تطبيق الواتساب:</p>
+                <div style="margin: 20px;"><img src="${qrImage}" style="width: 300px; height: 300px;"/></div>
+                <p>🔄 ستتحدث الصفحة تلقائياً كل 5 ثوانٍ لجلب كود جديد إذا انتهت صلاحيته.</p>
+                <script>
+                    setTimeout(() => { location.reload(); }, 5000);
+                </script>
+            </div>
+        `);
+    } catch (err) {
+        res.status(500).send('خطأ في توليد الـ QR Code');
+    }
+});
+
+// تشغيل سيرفر الويب
+app.listen(PORT, () => {
+    console.log(`🌐 صفحة الـ QR Code واجدة على الرابط: http://localhost:${PORT}`);
+});
+
+// إعداد Gemini
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const model = genAI.getGenerativeModel({ model: "gemini-3.5-flash" }); 
 
-// مفتاح كود الكورة
 const FOOTBALL_API_KEY = process.env.FOOTBALL_API_KEY;
-
-// ذاكرة الجلسات المؤقتة
 const userSessions = {};
 
 async function startBot() {
@@ -32,15 +74,18 @@ async function startBot() {
 
     sock.ev.on('connection.update', (update) => {
         const { connection, lastDisconnect, qr } = update;
+        
         if (qr) {
-            const qrcode = require('qrcode-terminal');
-            console.log('✨ سكان الـ QR Code واجد للربط:\n');
-            qrcode.generate(qr, { small: true });
+            latestQR = qr; // حفظ الـ QR لعرضه في المتصفح
+            console.log('✨ كود الـ QR Code واجد في صفحة الويب! افتح: http://localhost:' + PORT);
         }
+        
         if (connection === 'close') {
+            latestQR = null; // تصفير الكود عند انقطاع الاتصال
             const shouldReconnect = (lastDisconnect.error)?.output?.statusCode !== 401;
             if (shouldReconnect) startBot();
         } else if (connection === 'open') {
+            latestQR = null; // إخفاء الكود بمجرد نجاح الاتصال
             console.log('✅ البوت شغال بنظام التوليد النصي والتحويل الصوتي المضمون!');
         }
     });
@@ -62,14 +107,12 @@ async function startBot() {
         if (userSessions[from]) {
             const session = userSessions[from];
 
-            // 1. القائمة الرئيسية
             if (session.step === 'MAIN_MENU') {
                 if (cleanInput === '1') { command = '!مباريات'; delete userSessions[from]; }
                 else if (cleanInput === '2') { await sock.sendMessage(from, { text: '🎵 اكتب *!yt* متبوعاً باسم الأغنية اللي بغيتي.\nمثال: `!yt اغنية مغربية`' }); return delete userSessions[from]; }
                 else if (cleanInput === '3') { await sock.sendMessage(from, { text: '🧠 اكتب *!gemini* متبوعاً بسؤالك مباشرة.' }); return delete userSessions[from]; }
             }
             
-            // 2. ⚽ معالجة اختيار المباريات (التعليق والتحويل الصوتي المضمون)
             else if (session.step === 'SELECT_MATCH' && /^[1-5]$/.test(cleanInput)) {
                 const index = parseInt(cleanInput) - 1;
                 const match = session.matches[index];
@@ -77,21 +120,15 @@ async function startBot() {
                     await sock.sendMessage(from, { text: `🎙️ جاري تحليل الماتش بذكاء وتوليد الريكورد الصوتي...` });
                     try {
                         const matchDataPrompt = `المسابقة: ${match.competition.name} | الفريق المستضيف: ${match.homeTeam.name} | الفريق الضيف: ${match.awayTeam.name} | النتيجة: [ ${match.score.fullTime.home ?? 0} - ${match.score.fullTime.away ?? 0} ] | الحالة: ${match.status}`;
-                        
-                        // هنا كنطلبوا من جـيـمـيـني نص تعليق حماسي (بلا إيموجيات باش النطق يجي مسرح ونقي)
                         const aiPrompt = `أنت معلق ومحلل كروي مغربي حماسي تكتيكي وكوميدي. حلل النتيجة وعلّق على المباراة بالدارجة المغربية المفهومة وبأسلوب حماسي جداً وممتع. تنبيه مهم جداً: لا تضع أي رموز تعبيرية أو إيموجي أو نجمات أو علامات غريبة وسط النص نهائياً لكي يسهل تحويله إلى صوت نقي بدون مشاكل. ها هي الداتا:\n${matchDataPrompt}`;
                         
                         const result = await model.generateContent(aiPrompt);
                         const aiCommentary = result.response.text();
 
-                        // البحث عن ملخص اللقاء على يوتيوب
                         const ytRes = await ytSearch(`ملخص مباراة ${match.homeTeam.name} ضد ${match.awayTeam.name} اهداف`);
                         const topVideo = ytRes.videos[0];
 
-                        // مسار حفظ ملف الصوت المؤقت
                         const audioPath = `./downloads/commentary_${Date.now()}.mp3`;
-                        
-                        // تحويل النص لي صاوب لينا Gemini إلى ملف صوتي عبر gTTS
                         const tts = new gTTS(aiCommentary, 'ar');
                         
                         tts.save(audioPath, async (err) => {
@@ -99,21 +136,18 @@ async function startBot() {
 
                             let captionText = `🏆 *ملخص اللقاء:* ${match.homeTeam.name} vs ${match.awayTeam.name}\n\n📺 *شاهد الملخص على يوتيوب:*\n🔗 *الرابط:* ${topVideo ? topVideo.url : 'غير متوفر حالياً'}`;
                             
-                            // إرسال صورة البوستر والملخص النصي أولاً
                             if (topVideo) {
                                 await sock.sendMessage(from, { image: { url: topVideo.thumbnail }, caption: captionText });
                             } else {
                                 await sock.sendMessage(from, { text: captionText });
                             }
 
-                            // إرسال التعليق كـ تسجيل صوتي مباشر (ميكرو أزرق)
                             await sock.sendMessage(from, { 
                                 audio: { url: audioPath }, 
                                 mimetype: 'audio/mp4', 
-                                ptt: true // يظهر كـ Voice Note ميكرو أزرق
+                                ptt: true 
                             });
 
-                            // حذف الملف المؤقت باش ما يعمرش السيرفر
                             if (fs.existsSync(audioPath)) fs.unlinkSync(audioPath);
                         });
 
@@ -127,7 +161,6 @@ async function startBot() {
                 }
             }
 
-            // 3. معالجة خطوات اليوتيوب والتحميل
             else if (session.step === 'SELECT_VIDEO' && /^[1-5]$/.test(cleanInput)) {
                 const index = parseInt(cleanInput) - 1;
                 session.selectedVideo = session.videos[index];
