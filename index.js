@@ -52,7 +52,7 @@ app.get('/', async (req, res) => {
 });
 
 // تشغيل سيرفر الويب
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
     console.log(`🌐 صفحة الـ QR Code واجدة على الرابط: http://localhost:${PORT}`);
 });
 
