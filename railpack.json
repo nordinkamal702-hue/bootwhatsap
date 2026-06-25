@@ -1,5 +1,6 @@
 {
-  "packages": [
-    "python3"
-  ]
+  "$schema": "https://schema.railpack.com",
+  "packages": {
+    "python": "3"
+  }
 }
